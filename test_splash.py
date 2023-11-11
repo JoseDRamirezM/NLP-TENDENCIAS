@@ -6,8 +6,17 @@ from bs4 import BeautifulSoup
 from textblob import TextBlob
 import pandas as pd
 
+##########################
+# Failure checks
+def check_splash_conn(splash_url):
+    r = requests.get(splash_url)
+    if r.status_code == 200:
+        return True
+    return False
+
+
 ########################
-#Dataframe
+# Raw products Dataframe
 
 def add_dash(product_id):
     return product_id.replace("MCO", "MCO-")
@@ -20,11 +29,7 @@ def get_products_df():
     return all_products
 
 ###############################################
-
-url = "https://articulo.mercadolibre.com.co/MCO-458337978"
-
-splash_url = "http://localhost:8050/render.html"
-
+# Web scraping process
 
 def get_reviews(splash_url, target_url):
 
@@ -38,12 +43,16 @@ def get_reviews(splash_url, target_url):
     translator = Translator()
 
     translated = []
+    original = []
 
-    for review in mydivs:
-        translated_text = translator.translate(str(review.text), src="es")
-        translated.append(translated_text.text)
+    if mydivs:
+        for review in mydivs:
+            clean_text = preprocesar(review.text)
+            translated_text = translator.translate(str(clean_text), src="es")
+            translated.append(translated_text.text)
+            original.append(clean_text)
 
-    return(translated)
+    return [translated, original]
 
 
 def normalize(text):
@@ -83,19 +92,66 @@ def get_polarity(text):
 def get_subjectivity(text):
     return TextBlob(text).sentiment.subjectivity
 
-reviews_list = get_reviews(splash_url, url)
-reviews_df = pd.DataFrame(reviews_list, columns=['Review'])
-#preprocesar
-reviews_df = reviews_df['Review'].transform(preprocesar)
-print(reviews_df)
+################################
 
-polarity = reviews_df.apply(get_polarity)
-subjectivity = reviews_df.apply(get_subjectivity)
+# Result Dataframe 
 
-result = pd.DataFrame({ 'Review': reviews_df,
-                       'Polarity': polarity,
-                        'Subjectivity': subjectivity })
+def get_score_word(score):
+    if float(score) > 0.4:
+        return 'buena'
+    elif float(score) >= 0.3:
+        return 'regular'
+    return 'mala'
 
-print(result)
+###############################
+
+# Driver program
+splash_url = "http://localhost:8050/"
+if check_splash_conn(splash_url):
+    # Output DF
+    output = pd.DataFrame(columns=['product', 'reviews', 'score', 'score_word'])
+
+    # Raw DF
+    raw_df = get_products_df()
+    for product in raw_df.values.tolist():
+        try:
+            url = "https://articulo.mercadolibre.com.co/{}".format(product)
+            splash_url = "http://localhost:8050/render.html"
+            print("Beginning process for: " + str(product))
+            reviews_list = get_reviews(splash_url, url)
+            # Verify reviews are retrieved
+            if reviews_list[0]:
+                reviews_df = pd.DataFrame(reviews_list[0], columns=['Review'])
+                #preprocesar
+                reviews_df = reviews_df['Review'].transform(preprocesar)
+
+                polarity = reviews_df.apply(get_polarity)
+                subjectivity = reviews_df.apply(get_subjectivity)
+
+                result = pd.DataFrame({ 'Review': reviews_list[1],
+                                        'Polarity': polarity,
+                                        'Subjectivity': subjectivity })
+
+                mean = '%.2f'%(result['Polarity'].mean())
+                reviews = result['Review'].values.tolist()
+                # Add new row to DF    
+                output.loc[len(output.index)] = [product, [reviews], mean, get_score_word(mean)]
+                print("Success")
+            else:
+                # Manage empty reviews
+                output.loc[len(output.index)] = [product, [[]], 0, 0]
+                print("Reviews were empty")
+            break
+            #print(output)
+        except Exception as e:
+            print("-------------------ERROR---------------------------------")
+            print(e)
+else:
+    print("-------------------WARNING---------------------------------")
+    print("Check connection to Splash proxy!")
+
+print(output)
+# Export final dataframe to csv
+output.to_csv('./results.csv', sep=',', encoding='utf-8')
 
 
