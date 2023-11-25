@@ -5,6 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from textblob import TextBlob
 import pandas as pd
+import traceback
 
 #########
 #DATABASE
@@ -42,26 +43,30 @@ def get_products_df():
 
 def get_reviews(splash_url, target_url):
 
-    r = requests.get(splash_url, 
-                        params={'url':target_url, 'wait': 2})
+    try:
+        r = requests.get(splash_url, 
+                            params={'url':target_url, 'wait': 2})
+        print(r.status_code)
 
-    soup = BeautifulSoup(r.text, 'html.parser')
+        soup = BeautifulSoup(r.text, 'html.parser')
 
-    mydivs = soup.find_all("p", {'class': "ui-review-capability-comments__comment__content", 'role':"presentation"})
+        mydivs = soup.find_all("p", {'class': "ui-review-capability-comments__comment__content", 'role':"presentation"})
 
-    translator = Translator()
+        translator = Translator()
 
-    translated = []
-    original = []
+        translated = []
+        original = []
 
-    if mydivs:
-        for review in mydivs:
-            clean_text = preprocesar(review.text)
-            translated_text = translator.translate(str(clean_text), src="es")
-            translated.append(translated_text.text)
-            original.append(clean_text)
+        if mydivs:
+            for review in mydivs:
+                clean_text = preprocesar(review.text)
+                translated_text = translator.translate(str(clean_text), src="es")
+                translated.append(translated_text.text)
+                original.append(clean_text)
 
-    return [translated, original]
+        return [translated, original]
+    except:
+        print("No se obtuvieron comentarios")
 
 
 def normalize(text):
@@ -77,7 +82,7 @@ def normalize(text):
     text = re.sub('ü', 'u', text)
     text = re.sub('ñ', 'n', text)
 
-    return text
+    return ' '.join(text.split())
 
 def clean(text):
     chars = r'[,;.:¡!¿?@#$%&[\](){}<>~=+\-*/|\\_^`"\']'
@@ -111,7 +116,6 @@ def get_score_word(score):
     elif float(score) >= 0.3:
         return 'regular'
     return 'mala'
-
 ###############################
 
 # Driver program
@@ -120,6 +124,9 @@ try:
     if check_splash_conn(splash_url):
         # Obtener productos de la BD
         products = get_products()[0]
+        last = products.index(('MCO1344037109',))
+        print(last)
+        products = products[last+1: ]
         #print(products)
 
         # Output DF
@@ -133,37 +140,52 @@ try:
                 print("Beginning process for: " + str(product))
                 reviews_list = get_reviews(splash_url, url)
                 # Verify reviews are retrieved
-                if reviews_list[0]:
+                if reviews_list and reviews_list[0]:
                     reviews_df = pd.DataFrame(reviews_list[0], columns=['Review'])
                     #preprocesar
                     reviews_df = reviews_df['Review'].transform(preprocesar)
                     polarity = reviews_df.apply(get_polarity)
-                    subjectivity = reviews_df.apply(get_subjectivity)
+                    #subjectivity = reviews_df.apply(get_subjectivity)
 
                     result = pd.DataFrame({ 'Review': reviews_list[1],
-                                            'Polarity': polarity,
-                                            'Subjectivity': subjectivity })
-                    print(result)
+                                            'Polarity': polarity})
+                                            #'Subjectivity': subjectivity })
+                    #print(result)
+                    # Datos para insertar, como las listas son simétricas es más rápido
+                    # que iterar sobre el DataFrame
+                    reviews_list = result['Review'].tolist()
+                    polarity_list = result['Polarity'].tolist()
+
+                    # Insertar datos en BD
+
+                    # Test query
+                    for x in range(0, len(reviews_list)):
+                        comment_dict = {
+                            'k_product' : product[0],
+                            'nlp_score' : polarity_list[x],
+                            'comment_text': reviews_list[x]
+                        }
+                        database.insert_comments(comment_dict)
 
 #                 mean = '%.2f'%(result['Polarity'].mean())
 #                 reviews = result['Review'].values.tolist()
 #                 # Add new row to DF    
 #                 output.loc[len(output.index)] = [product, [reviews], mean, get_score_word(mean)]
 #                 print("Success")
-#             else:
-#                 # Manage empty reviews
-#                 output.loc[len(output.index)] = [product, [[]], 0, 0]
-#                 print("Reviews were empty")
+                else:
+                    # Manage empty reviews
+                    #output.loc[len(output.index)] = [product, [[]], 0, 0]
+                    print("Reviews were empty")
 #             break
 #             #print(output)
 #         except Exception as e:
 #             print("-------------------ERROR---------------------------------")
-#             print(e)
+    #             print(e)
         
 except Exception as e:
     print("-------------------WARNING---------------------------------")
-    print("Check connection to Splash proxy!")
-    print(f"Error: {str(e)}")
+    #traceback.print_exc()
+    print(e)
 
 # print(output)
 # # Export final dataframe to csv

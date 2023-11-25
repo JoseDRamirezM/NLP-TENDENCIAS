@@ -18,7 +18,6 @@ class Database():
             'database': config('MYSQL_DATABASE'),
             'connect_timeout': 60
         }
-        print(self.config)
         self.mysql = None
 
     #Config Access
@@ -69,15 +68,15 @@ class Database():
         try:
             # Debug LOG
             print(f"[DEBUG]|DB - insert_comment: {comment['k_product'], comment['nlp_score'], comment['comment_text']}")
-            if not comment:
+            if comment:
                 ncursor = self.login_database()
-#VALUES ('MCO1003580531', 0.5, 'test');
-                query = "INSERT INTO Comments VALUES (%s, %s, %s)"
+                query = "INSERT INTO Comments (k_products, nlp_score, comment_text) VALUES (%s, %s, %s)"
                 ncursor.execute(query, (comment['k_product'], comment['nlp_score'], comment['comment_text']))
                 self.mysql.commit()
-                return f"Comentario para producto: {comment['k_product']} añadido satisfactoriamente.", True
+                print(f"Comentario para producto: {comment['k_product']} añadido satisfactoriamente.")
+                return True
         except mysql.connector.Error as error:
             print('Error : insert_comments' + str(error))
-            return [[], False]
+            return False
         finally:
             self.logout_database()
