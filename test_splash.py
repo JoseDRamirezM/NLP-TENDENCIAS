@@ -6,6 +6,15 @@ from bs4 import BeautifulSoup
 from textblob import TextBlob
 import pandas as pd
 
+#########
+#DATABASE
+
+from database import Database
+database = Database()
+
+def get_products():
+    return database.get_products()
+
 ##########################
 # Failure checks
 def check_splash_conn(splash_url):
@@ -87,10 +96,10 @@ def preprocesar(text):
     return text
 
 def get_polarity(text):
-    return TextBlob(text).sentiment.polarity
+    return '%.2f'%(TextBlob(text).sentiment.polarity)
 
 def get_subjectivity(text):
-    return TextBlob(text).sentiment.subjectivity
+    return '%.2f'%(TextBlob(text).sentiment.subjectivity)
 
 ################################
 
@@ -107,51 +116,55 @@ def get_score_word(score):
 
 # Driver program
 splash_url = "http://localhost:8050/"
-if check_splash_conn(splash_url):
-    # Output DF
-    output = pd.DataFrame(columns=['product', 'reviews', 'score', 'score_word'])
+try:
+    if check_splash_conn(splash_url):
+        # Obtener productos de la BD
+        products = get_products()[0]
+        #print(products)
 
-    # Raw DF
-    raw_df = get_products_df()
-    for product in raw_df.values.tolist():
-        try:
-            url = "https://articulo.mercadolibre.com.co/{}".format(product)
-            splash_url = "http://localhost:8050/render.html"
-            print("Beginning process for: " + str(product))
-            reviews_list = get_reviews(splash_url, url)
-            # Verify reviews are retrieved
-            if reviews_list[0]:
-                reviews_df = pd.DataFrame(reviews_list[0], columns=['Review'])
-                #preprocesar
-                reviews_df = reviews_df['Review'].transform(preprocesar)
+        # Output DF
+        #output = pd.DataFrame(columns=['product', 'reviews', 'score', 'score_word'])
 
-                polarity = reviews_df.apply(get_polarity)
-                subjectivity = reviews_df.apply(get_subjectivity)
+        print(f"Hay {len(products)} productos registrados")
+        for product in products:
+                product_id = add_dash(product[0])
+                url = "https://articulo.mercadolibre.com.co/{}".format(product_id)
+                splash_url = "http://localhost:8050/render.html"
+                print("Beginning process for: " + str(product))
+                reviews_list = get_reviews(splash_url, url)
+                # Verify reviews are retrieved
+                if reviews_list[0]:
+                    reviews_df = pd.DataFrame(reviews_list[0], columns=['Review'])
+                    #preprocesar
+                    reviews_df = reviews_df['Review'].transform(preprocesar)
+                    polarity = reviews_df.apply(get_polarity)
+                    subjectivity = reviews_df.apply(get_subjectivity)
 
-                result = pd.DataFrame({ 'Review': reviews_list[1],
-                                        'Polarity': polarity,
-                                        'Subjectivity': subjectivity })
+                    result = pd.DataFrame({ 'Review': reviews_list[1],
+                                            'Polarity': polarity,
+                                            'Subjectivity': subjectivity })
+                    print(result)
 
-                mean = '%.2f'%(result['Polarity'].mean())
-                reviews = result['Review'].values.tolist()
-                # Add new row to DF    
-                output.loc[len(output.index)] = [product, [reviews], mean, get_score_word(mean)]
-                print("Success")
-            else:
-                # Manage empty reviews
-                output.loc[len(output.index)] = [product, [[]], 0, 0]
-                print("Reviews were empty")
-            break
-            #print(output)
-        except Exception as e:
-            print("-------------------ERROR---------------------------------")
-            print(e)
-else:
+#                 mean = '%.2f'%(result['Polarity'].mean())
+#                 reviews = result['Review'].values.tolist()
+#                 # Add new row to DF    
+#                 output.loc[len(output.index)] = [product, [reviews], mean, get_score_word(mean)]
+#                 print("Success")
+#             else:
+#                 # Manage empty reviews
+#                 output.loc[len(output.index)] = [product, [[]], 0, 0]
+#                 print("Reviews were empty")
+#             break
+#             #print(output)
+#         except Exception as e:
+#             print("-------------------ERROR---------------------------------")
+#             print(e)
+        
+except Exception as e:
     print("-------------------WARNING---------------------------------")
     print("Check connection to Splash proxy!")
+    print(f"Error: {str(e)}")
 
-print(output)
-# Export final dataframe to csv
-output.to_csv('./results.csv', sep=',', encoding='utf-8')
-
-
+# print(output)
+# # Export final dataframe to csv
+# output.to_csv('./results.csv', sep=',', encoding='utf-8')
